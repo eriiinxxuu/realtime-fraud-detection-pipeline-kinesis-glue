@@ -1,0 +1,12 @@
+variable "project"                  { type = string }
+variable "aws_region"               { type = string }
+variable "aws_account_id"           { type = string }
+variable "github_org"               { type = string }
+variable "github_repo"              { type = string }
+variable "tf_state_bucket"          { type = string }
+variable "kinesis_stream_arn"       { type = string }
+variable "raw_bucket_arn"           { type = string }
+variable "predictions_bucket_arn"   { type = string }
+variable "glue_assets_bucket_arn"   { type = string }
+variable "model_artifacts_bucket_arn" { type = string }
+variable "fraud_alerts_arn"         { type = string }
