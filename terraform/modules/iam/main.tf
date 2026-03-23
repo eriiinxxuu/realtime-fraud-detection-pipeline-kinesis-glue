@@ -252,6 +252,55 @@ resource "aws_iam_role_policy" "sagemaker_ecr" {
   })
 }
 
+resource "aws_iam_role_policy" "sagemaker_vpc" {
+  name = "${var.project}-sagemaker-vpc"
+  role = aws_iam_role.sagemaker.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeSubnets",
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeVpcs",
+          "ec2:DescribeNetworkInterfaces",
+          "ec2:DescribeDhcpOptions",
+          "ec2:DescribeRouteTables",
+          "ec2:DescribeVpcEndpoints"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["ec2:CreateNetworkInterface"]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "aws:RequestedRegion" = var.aws_region
+          }
+        }
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["ec2:DeleteNetworkInterface"]
+        Resource = "*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["ec2:CreateNetworkInterfacePermission"]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "ec2:AuthorizedService" = "sagemaker.amazonaws.com"
+          }
+        }
+      }
+    ]
+  })
+}
+
 # ── Lambda Role ───────────────────────────────────────────────
 
 resource "aws_iam_role" "lambda" {

@@ -4,24 +4,20 @@
 # SageMaker Real-time Endpoint
 # └── fraud-detection-endpoint
 #     ├── model: LightGBM (model.pkl → model.tar.gz in S3)
+#     ├── container: sklearn inference image (ap-southeast-2)
 #     ├── instance: ml.t2.medium (1 instance)
-#     ├── container: sklearn inference image (AWS managed)
+#     ├── VPC: private subnets only
 #     └── invoked by Lambda after Glue writes features to S3
 #
-# Flow:
-#   S3 (features) → Lambda → SageMaker endpoint → fraud_score
-#
 # Note: Before terraform apply, upload model to S3:
-#   tar -czf model.tar.gz model.pkl
+#   tar -czf model.tar.gz model.pkl inference.py
 #   aws s3 cp model.tar.gz s3://{project}-model-artifacts/model/model.tar.gz
 #
 # CloudWatch Alarms for endpoint latency in cloudwatch module
 # ============================================================
 
-data "aws_region" "current" {}
-
 locals {
-  sklearn_image = "246618743249.dkr.ecr.ap-southeast-2.amazonaws.com/sagemaker-scikit-learn:1.2-1-cpu-py3"
+  sklearn_image = "783357654285.dkr.ecr.${var.aws_region}.amazonaws.com/sagemaker-scikit-learn:1.2-1-cpu-py3"
 }
 
 resource "aws_sagemaker_model" "fraud" {
@@ -33,8 +29,7 @@ resource "aws_sagemaker_model" "fraud" {
     model_data_url = "s3://${var.model_artifacts_bucket}/model/model.tar.gz"
 
     environment = {
-      SAGEMAKER_PROGRAM             = "inference.py"
-      SAGEMAKER_SUBMIT_DIRECTORY    = "/opt/ml/code"
+      SAGEMAKER_PROGRAM = "inference.py"
     }
   }
 
