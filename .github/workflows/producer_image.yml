@@ -1,0 +1,78 @@
+name: Deploy Producer Image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/producer/**'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-producer:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ap-southeast-2
+
+      - name: Login to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push producer image
+        env:
+          ECR_REGISTRY:   ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ secrets.PROJECT_NAME }}-producer
+          IMAGE_TAG:       ${{ github.sha }}
+        run: |
+          docker build \
+            -f src/producer/Dockerfile \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
+            src/
+
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      - name: Update ECS service
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          CLUSTER="${{ secrets.PROJECT_NAME }}"
+          SERVICE="producer"
+
+          # update task definition with new image
+          TASK_DEF=$(aws ecs describe-task-definition \
+            --task-definition "${{ secrets.PROJECT_NAME }}-producer" \
+            --query 'taskDefinition' \
+            --output json)
+
+          NEW_IMAGE="${{ steps.login-ecr.outputs.registry }}/${{ secrets.PROJECT_NAME }}-producer:$IMAGE_TAG"
+
+          NEW_TASK_DEF=$(echo $TASK_DEF | jq \
+            --arg IMAGE "$NEW_IMAGE" \
+            '.containerDefinitions[0].image = $IMAGE |
+             del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
+                 .compatibilities, .registeredAt, .registeredBy)')
+
+          NEW_TASK_ARN=$(aws ecs register-task-definition \
+            --cli-input-json "$NEW_TASK_DEF" \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+
+          aws ecs update-service \
+            --cluster "$CLUSTER" \
+            --service "$SERVICE" \
+            --task-definition "$NEW_TASK_ARN" \
+            --force-new-deployment
+
+          echo "ECS service updated with task: $NEW_TASK_ARN"
