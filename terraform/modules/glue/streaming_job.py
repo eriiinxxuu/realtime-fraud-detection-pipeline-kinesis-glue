@@ -1,3 +1,16 @@
+"""
+streaming_job.py
+────────────────
+Glue Streaming Job (Glue 4.0)
+
+Flow:
+  Kinesis Data Streams (transactions)
+      → parse JSON
+      → feature engineering (26 features, same as training)
+      → write parquet to S3 raw-transactions/features/
+          partitioned by year / month / day
+"""
+
 import sys
 from awsglue.transforms import *
 from awsglue.utils import getResolvedOptions
@@ -10,6 +23,8 @@ from pyspark.sql.types import (
     StringType, IntegerType, DoubleType,
     BooleanType, ArrayType
 )
+
+# ── Job args ──────────────────────────────────────────────────────────────────
 
 args = getResolvedOptions(sys.argv, [
     'JOB_NAME',
@@ -29,6 +44,8 @@ KINESIS_STREAM_NAME = args['KINESIS_STREAM_NAME']
 AWS_REGION          = args['AWS_REGION']
 S3_OUTPUT_PATH      = args['S3_OUTPUT_PATH']
 WINDOW_SIZE         = args['WINDOW_SIZE']
+
+# ── Transaction schema ────────────────────────────────────────────────────────
 
 TRANSACTION_SCHEMA = StructType([
     StructField("transaction_id", StringType()),
@@ -65,19 +82,18 @@ RISK_SIGNALS = [
     "high_risk_mcc",
 ]
 
-
 COLS_TO_DROP = [
-    "is_fraud", "fraud_type", "fraud_details",  
-    "risk_signals", "user_profile_summary",      
-    "risk_score",                               
-    "json_str", "txn",                          
-    "home_country",                             
-    "event_time",                                
+    "is_fraud", "fraud_type", "fraud_details",
+    "risk_signals", "user_profile_summary",
+    "risk_score",
+    "home_country",
+    "event_time",
 ]
 
+# ── Feature engineering ───────────────────────────────────────────────────────
 
 def add_features(df):
-    # ── Flatten user_profile_summary ─────────────────────────────
+    # Flatten user_profile_summary
     df = (df
         .withColumn("account_age_days",
                     F.col("user_profile_summary.account_age_days"))
@@ -89,28 +105,27 @@ def add_features(df):
                     F.col("user_profile_summary.home_country"))
     )
 
-    # ── Expand risk_signals → signal_* binary columns ─────────────
+    # Expand risk_signals → signal_* binary columns
     for signal in RISK_SIGNALS:
         df = df.withColumn(
             f"signal_{signal}",
             F.array_contains(F.col("risk_signals"), F.lit(signal)).cast(IntegerType())
         )
 
-    # ── Time features ─────────────────────────────────────────────
+    # Time features
     df = (df
         .withColumn("event_time",  F.to_timestamp(F.col("timestamp")))
         .withColumn("hour",        F.hour(F.col("event_time")))
         .withColumn("day_of_week", F.dayofweek(F.col("event_time")))
         .withColumn("is_weekend",
                     F.when(F.col("day_of_week").isin([1, 7]), 1).otherwise(0))
-       
         .withColumn("is_night",
                     F.when(
                         (F.col("hour") >= 21) | (F.col("hour") < 5), 1
                     ).otherwise(0))
     )
 
-    # ── Amount / geo features ─────────────────────────────────────
+    # Amount / geo features
     df = (df
         .withColumn("amount_ratio",
                     F.col("amount") / F.when(
@@ -120,12 +135,11 @@ def add_features(df):
                     (F.col("location") == F.col("home_country")).cast(IntegerType()))
         .withColumn("is_small_amount",
                     (F.col("amount") < 5).cast(IntegerType()))
-        
         .withColumn("is_round_amount",
                     (F.floor(F.col("amount")) == F.col("amount")).cast(IntegerType()))
     )
 
-    # ── Partition columns ─────────────────────────────────────────
+    # Partition columns
     df = (df
         .withColumn("year",  F.year(F.col("event_time")))
         .withColumn("month", F.month(F.col("event_time")))
@@ -134,47 +148,57 @@ def add_features(df):
 
     return df
 
+# ── Batch processing function ─────────────────────────────────────────────────
 
-def process_batch(micro_batch_df, batch_id):
-    if micro_batch_df.isEmpty():
+def process_batch(data_frame, batch_id):
+    if data_frame.count() == 0:
         return
 
-    parsed = (micro_batch_df
+    # Parse JSON from Kinesis data column
+    parsed = (data_frame
         .withColumn("json_str", F.col("data").cast(StringType()))
         .withColumn("txn",      F.from_json(F.col("json_str"), TRANSACTION_SCHEMA))
         .select("txn.*")
         .filter(F.col("transaction_id").isNotNull())
     )
 
+    # Feature engineering
     featured = add_features(parsed)
 
-    
+    # Drop columns not needed for inference
     cols_to_drop = [c for c in COLS_TO_DROP if c in featured.columns]
     featured_clean = featured.drop(*cols_to_drop)
 
+    # Write to S3 partitioned by year/month/day
     (featured_clean.write
         .mode("append")
         .partitionBy("year", "month", "day")
         .parquet(S3_OUTPUT_PATH)
     )
 
+# ── Read from Kinesis using Glue native connector ─────────────────────────────
 
-kinesis_stream = (spark.readStream
-    .format("kinesis")
-    .option("streamName", KINESIS_STREAM_NAME)
-    .option("startingPosition", "LATEST")
-    .option("region", AWS_REGION)
-    .option("awsStsRoleArn", "")
-    .load()
+kinesis_stream = glueContext.create_data_frame_from_options(
+    connection_type="kinesis",
+    connection_options={
+        "typeOfData":       "kinesis",
+        "streamARN":        f"arn:aws:kinesis:{AWS_REGION}:402705369995:stream/{KINESIS_STREAM_NAME}",
+        "classification":   "json",
+        "startingPosition": "LATEST",
+        "inferSchema":      "false",
+    },
+    transformation_ctx="kinesis_stream"
 )
 
-query = (kinesis_stream
-    .writeStream
-    .foreachBatch(process_batch)
-    .trigger(processingTime=WINDOW_SIZE)
-    .option("checkpointLocation", f"{S3_OUTPUT_PATH}_checkpoint/")
-    .start()
+# ── Start streaming with Glue forEachBatch ────────────────────────────────────
+
+glueContext.forEachBatch(
+    frame=kinesis_stream,
+    batch_function=process_batch,
+    options={
+        "windowSize":         WINDOW_SIZE,
+        "checkpointLocation": f"{S3_OUTPUT_PATH}_checkpoint/",
+    }
 )
 
-query.awaitTermination()
 job.commit()

@@ -192,6 +192,23 @@ resource "aws_iam_role_policy" "glue_s3" {
   })
 }
 
+resource "aws_iam_role_policy" "glue_kms" {
+  name = "${var.project}-glue-kms"
+  role = aws_iam_role.glue.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "kms:Decrypt",
+        "kms:GenerateDataKey"
+      ]
+      Resource = "*"
+    }]
+  })
+}
+
 # ── SageMaker Role ────────────────────────────────────────────
 
 resource "aws_iam_role" "sagemaker" {
