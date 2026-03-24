@@ -401,72 +401,79 @@ resource "aws_iam_role" "github_actions" {
   assume_role_policy = data.aws_iam_policy_document.github_assume.json
 }
 
-resource "aws_iam_role_policy" "github_actions_policy" {
-  name = "${var.project}-github-actions-policy"
-  role = aws_iam_role.github_actions.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "ecr:GetAuthorizationToken",
-          "ecr:BatchCheckLayerAvailability",
-          "ecr:GetDownloadUrlForLayer",
-          "ecr:BatchGetImage",
-          "ecr:InitiateLayerUpload",
-          "ecr:UploadLayerPart",
-          "ecr:CompleteLayerUpload",
-          "ecr:PutImage"
-        ]
-        Resource = "*"
-      },
-          {
-      Effect = "Allow"
-      Action = [
-        "ecs:UpdateService",
-        "ecs:DescribeServices",
-        "ecs:RegisterTaskDefinition"
-      ]
-      Resource = "*"
-    },
-     {
-        Effect = "Allow"
-        Action = [
-          "s3:GetObject",
-          "s3:PutObject",
-          "s3:ListBucket",
-          "s3:DeleteObject"
-        ]
-        Resource = [
-          "arn:aws:s3:::${var.tf_state_bucket}",
-          "arn:aws:s3:::${var.tf_state_bucket}/*"
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "s3:GetObject",
-          "s3:PutObject",
-          "s3:ListBucket"
-        ]
-        Resource = [
-          var.glue_assets_bucket_arn,
-          "${var.glue_assets_bucket_arn}/*"
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "glue:GetJob",
-          "glue:GetJobRun",
-          "glue:GetJobRuns",
-          "glue:StartJobRun",
-          "glue:BatchStopJobRun"
-        ]
-        Resource = "*"
-      }
-    ]
-  })
+resource "aws_iam_role_policy_attachment" "github_actions_admin" {
+  role       = aws_iam_role.github_actions.name
+  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
 }
+
+# resource "aws_iam_role_policy" "github_actions_policy" {
+#   name = "${var.project}-github-actions-policy"
+#   role = aws_iam_role.github_actions.id
+
+#   policy = jsonencode({
+#     Version = "2012-10-17"
+#     Statement = [
+#       {
+#         Effect = "Allow"
+#         Action = [
+#           "ecr:GetAuthorizationToken",
+#           "ecr:BatchCheckLayerAvailability",
+#           "ecr:GetDownloadUrlForLayer",
+#           "ecr:BatchGetImage",
+#           "ecr:InitiateLayerUpload",
+#           "ecr:UploadLayerPart",
+#           "ecr:CompleteLayerUpload",
+#           "ecr:PutImage"
+#         ]
+#         Resource = "*"
+#       },
+#           {
+#       Effect = "Allow"
+#       Action = [
+#         "ecs:UpdateService",
+#         "ecs:DescribeServices",
+#         "ecs:RegisterTaskDefinition",
+#         "ecs:DescribeTaskDefinition",
+#          "ecs:ListTaskDefinitions"
+#       ]
+#       Resource = "*"
+#     },
+#      {
+#         Effect = "Allow"
+#         Action = [
+#           "s3:GetObject",
+#           "s3:PutObject",
+#           "s3:ListBucket",
+#           "s3:DeleteObject"
+#         ]
+#         Resource = [
+#           "arn:aws:s3:::${var.tf_state_bucket}",
+#           "arn:aws:s3:::${var.tf_state_bucket}/*"
+#         ]
+#       },
+#       {
+#         Effect = "Allow"
+#         Action = [
+#           "s3:GetObject",
+#           "s3:PutObject",
+#           "s3:ListBucket"
+#         ]
+#         Resource = [
+#           var.glue_assets_bucket_arn,
+#           "${var.glue_assets_bucket_arn}/*"
+#         ]
+#       },
+#       {
+#         Effect = "Allow"
+#         Action = [
+#           "glue:GetJob",
+#           "glue:GetJobRun",
+#           "glue:GetJobRuns",
+#           "glue:StartJobRun",
+#           "glue:BatchStopJobRun"
+#         ]
+#         Resource = "*"
+#       }
+#     ]
+#   })
+# }
