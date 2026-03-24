@@ -11,7 +11,6 @@ from pyspark.sql.types import (
     BooleanType, ArrayType
 )
 
-
 args = getResolvedOptions(sys.argv, [
     'JOB_NAME',
     'KINESIS_STREAM_NAME',
