@@ -27,7 +27,7 @@ jobs:
       - name: Upload Glue script to S3
         run: |
           aws s3 cp terraform/modules/glue/streaming_job.py \
-            s3://${{ secrets.GLUE_ASSETS_BUCKET }}/streaming_job.py
+            s3://${{ secrets.GLUE_ASSETS_BUCKET }}/scripts/streaming_job.py
 
       - name: Restart Glue job (if running)
         run: |
