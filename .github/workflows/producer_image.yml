@@ -2,7 +2,7 @@ name: Deploy Producer Image
 
 on:
   push:
-    branches: [main]
+    branches: [master]
     paths:
       - 'terraform/src/producer/**'
 
