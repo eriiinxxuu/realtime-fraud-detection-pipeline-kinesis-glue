@@ -34,7 +34,7 @@ jobs:
           ECR_REPOSITORY: ${{ secrets.PROJECT_NAME }}-producer
           IMAGE_TAG:       ${{ github.sha }}
         run: |
-         docker build \
+          docker build \
             -f terraform/src/producer/Dockerfile \
             -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
             -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \

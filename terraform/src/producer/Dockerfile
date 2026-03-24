@@ -1,6 +1,5 @@
 FROM python:3.10.16-slim-bookworm
 
-
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PYTHONIOENCODING=UTF-8
