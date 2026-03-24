@@ -422,16 +422,7 @@ resource "aws_iam_role_policy" "github_actions_policy" {
         ]
         Resource = "*"
       },
-      {
-        Effect = "Allow"
-        Action = [
-          "ecs:UpdateService",
-          "ecs:DescribeServices",
-          "ecs:RegisterTaskDefinition"
-        ]
-        Resource = "*"
-      },
-      {
+     {
         Effect = "Allow"
         Action = [
           "s3:GetObject",
@@ -443,6 +434,29 @@ resource "aws_iam_role_policy" "github_actions_policy" {
           "arn:aws:s3:::${var.tf_state_bucket}",
           "arn:aws:s3:::${var.tf_state_bucket}/*"
         ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          var.glue_assets_bucket_arn,
+          "${var.glue_assets_bucket_arn}/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "glue:GetJob",
+          "glue:GetJobRun",
+          "glue:GetJobRuns",
+          "glue:StartJobRun",
+          "glue:BatchStopJobRun"
+        ]
+        Resource = "*"
       }
     ]
   })
