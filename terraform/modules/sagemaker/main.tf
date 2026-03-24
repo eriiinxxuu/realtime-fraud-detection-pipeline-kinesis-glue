@@ -29,13 +29,9 @@ resource "aws_sagemaker_model" "fraud" {
     model_data_url = "s3://${var.model_artifacts_bucket}/model/model.tar.gz"
 
     environment = {
-      SAGEMAKER_PROGRAM = "inference.py"
+      SAGEMAKER_PROGRAM          = "inference.py"
+      SAGEMAKER_SUBMIT_DIRECTORY = "/opt/ml/model"
     }
-  }
-
-  vpc_config {
-    subnets            = var.subnet_ids
-    security_group_ids = var.security_group_ids
   }
 }
 

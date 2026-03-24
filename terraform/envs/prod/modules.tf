@@ -89,8 +89,6 @@ module "sagemaker" {
   aws_region             = var.aws_region
   sagemaker_role_arn     = module.iam.sagemaker_role_arn
   model_artifacts_bucket = module.s3.model_artifacts_bucket_name
-  subnet_ids             = module.networking.private_subnet_ids
-  security_group_ids     = [module.networking.sagemaker_sg_id]
 }
 
 module "lambda" {

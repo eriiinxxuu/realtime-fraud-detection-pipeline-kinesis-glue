@@ -3,6 +3,22 @@ import pickle
 import numpy as np
 import pandas as pd
 from io import StringIO
+import json
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Lambda invoke_endpoint()
+#     ↓
+# input_fn(request_body, content_type)   # bytes → DataFrame
+#     ↓
+# predict_fn(input_data, model)          # DataFrame → predictions
+#     ↓
+# output_fn(prediction, accept)          # predictions → bytes
+#     ↓
+# return to Lambda
+#
+# model_fn: only run when triggered - load model from /opt/ml/model/model.pkl
 
 FEATURE_COLUMNS = [
     "currency", "merchant", "location", "mcc", "device_id",
@@ -17,41 +33,40 @@ FEATURE_COLUMNS = [
     "signal_new_account", "signal_high_risk_mcc",
 ]
 
-
 def model_fn(model_dir):
-    """
-    SageMaker calls this once at endpoint startup.
-    Loads model.pkl from /opt/ml/model/ (extracted from model.tar.gz).
-    """
     model_path = os.path.join(model_dir, "model.pkl")
     with open(model_path, "rb") as f:
         model = pickle.load(f)
+    logger.info("Model loaded from %s", model_path)
     return model
 
 
 def input_fn(request_body, content_type):
-    """
-    Deserializes the incoming request.
-    Lambda sends CSV with header row.
-    """
     if content_type == "text/csv":
         df = pd.read_csv(StringIO(request_body))
-        return df[FEATURE_COLUMNS]
-    raise ValueError(f"Unsupported content type: {content_type}")
+    elif content_type == "application/json":
+        data = json.loads(request_body)
+        df = pd.DataFrame(data if isinstance(data, list) else [data])
+    else:
+        raise ValueError(f"Unsupported content type: {content_type}")
+
+    missing = set(FEATURE_COLUMNS) - set(df.columns)
+    if missing:
+        raise ValueError(f"Missing feature columns: {missing}")
+
+    return df[FEATURE_COLUMNS]
 
 
 def predict_fn(input_data, model):
-    """
-    Runs model.predict_proba on the input DataFrame.
-    Returns fraud probability (positive class).
-    """
-    proba = model.predict_proba(input_data)[:, 1]
-    return proba
+    return model.predict_proba(input_data)[:, 1]
 
 
 def output_fn(prediction, accept):
-    """
-    Serializes the prediction back to Lambda.
-    Returns one score per line as plain text.
-    """
-    return "\n".join(str(round(float(p), 6)) for p in prediction)
+    
+    if accept in ("text/plain", "*/*", ""):
+        body = "\n".join(str(round(float(p), 6)) for p in prediction)
+        return body, "text/plain"
+    if accept == "application/json":
+        body = json.dumps({"predictions": [round(float(p), 6) for p in prediction]})
+        return body, "application/json"
+    raise ValueError(f"Unsupported accept type: {accept}")

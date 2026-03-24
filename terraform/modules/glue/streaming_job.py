@@ -1,19 +1,3 @@
-"""
-streaming_job.py
-────────────────
-Glue Streaming Job (Glue 4.0 / Spark 3.3)
-
-Flow:
-  Kinesis Data Streams (transactions)
-      → parse JSON
-      → feature engineering (26 features, same as training)
-      → write parquet to S3 raw-transactions/features/
-          partitioned by year / month / day
-
-CloudWatch metric --enable-metrics exposes:
-  glue.driver.aggregate.recordsRead  ← used by cloudwatch module alarm
-"""
-
 import sys
 from awsglue.transforms import *
 from awsglue.utils import getResolvedOptions
@@ -24,10 +8,8 @@ from pyspark.sql import functions as F
 from pyspark.sql.types import (
     StructType, StructField,
     StringType, IntegerType, DoubleType,
-    BooleanType, ArrayType, TimestampType
+    BooleanType, ArrayType
 )
-
-# ── Job args ──────────────────────────────────────────────────────────────────
 
 args = getResolvedOptions(sys.argv, [
     'JOB_NAME',
@@ -45,10 +27,8 @@ job.init(args['JOB_NAME'], args)
 
 KINESIS_STREAM_NAME = args['KINESIS_STREAM_NAME']
 AWS_REGION          = args['AWS_REGION']
-S3_OUTPUT_PATH      = args['S3_OUTPUT_PATH']   # s3://bucket/features/
-WINDOW_SIZE         = args['WINDOW_SIZE']       # "30 seconds"
-
-# ── Transaction schema (matches producer output) ──────────────────────────────
+S3_OUTPUT_PATH      = args['S3_OUTPUT_PATH']
+WINDOW_SIZE         = args['WINDOW_SIZE']
 
 TRANSACTION_SCHEMA = StructType([
     StructField("transaction_id", StringType()),
@@ -72,8 +52,6 @@ TRANSACTION_SCHEMA = StructType([
     ])),
 ])
 
-# ── Risk signals list (same order as training) ────────────────────────────────
-
 RISK_SIGNALS = [
     "amount_anomaly_3x",
     "amount_anomaly_5x",
@@ -87,16 +65,18 @@ RISK_SIGNALS = [
     "high_risk_mcc",
 ]
 
-HIGH_RISK_MCC = ["6211", "5962", "7995", "7801"]
+
+COLS_TO_DROP = [
+    "is_fraud", "fraud_type", "fraud_details",  
+    "risk_signals", "user_profile_summary",      
+    "risk_score",                               
+    "json_str", "txn",                          
+    "home_country",                             
+    "event_time",                                
+]
 
 
 def add_features(df):
-    """
-    Feature engineering — identical to training pipeline.
-    Input:  raw parsed DataFrame
-    Output: DataFrame with 26 feature columns + metadata
-    """
-
     # ── Flatten user_profile_summary ─────────────────────────────
     df = (df
         .withColumn("account_age_days",
@@ -109,7 +89,7 @@ def add_features(df):
                     F.col("user_profile_summary.home_country"))
     )
 
-    # ── Expand risk_signals array into binary columns ─────────────
+    # ── Expand risk_signals → signal_* binary columns ─────────────
     for signal in RISK_SIGNALS:
         df = df.withColumn(
             f"signal_{signal}",
@@ -123,21 +103,26 @@ def add_features(df):
         .withColumn("day_of_week", F.dayofweek(F.col("event_time")))
         .withColumn("is_weekend",
                     F.when(F.col("day_of_week").isin([1, 7]), 1).otherwise(0))
+       
         .withColumn("is_night",
-                    F.when(F.col("hour").between(2, 5), 1).otherwise(0))
+                    F.when(
+                        (F.col("hour") >= 21) | (F.col("hour") < 5), 1
+                    ).otherwise(0))
     )
 
-    # ── Amount features ───────────────────────────────────────────
+    # ── Amount / geo features ─────────────────────────────────────
     df = (df
         .withColumn("amount_ratio",
-                    F.col("amount") / F.when(F.col("avg_transaction") == 0, F.lit(1.0))
-                                       .otherwise(F.col("avg_transaction")))
+                    F.col("amount") / F.when(
+                        F.col("avg_transaction") == 0, F.lit(1.0)
+                    ).otherwise(F.col("avg_transaction")))
         .withColumn("is_home_country",
                     (F.col("location") == F.col("home_country")).cast(IntegerType()))
         .withColumn("is_small_amount",
                     (F.col("amount") < 5).cast(IntegerType()))
+        
         .withColumn("is_round_amount",
-                    (F.col("amount") % 10 == 0).cast(IntegerType()))
+                    (F.floor(F.col("amount")) == F.col("amount")).cast(IntegerType()))
     )
 
     # ── Partition columns ─────────────────────────────────────────
@@ -151,14 +136,9 @@ def add_features(df):
 
 
 def process_batch(micro_batch_df, batch_id):
-    """
-    Called by Spark for each micro-batch.
-    Parses raw Kinesis bytes → feature engineering → write parquet.
-    """
     if micro_batch_df.isEmpty():
         return
 
-    # Parse JSON from Kinesis `data` column (base64-decoded by Spark)
     parsed = (micro_batch_df
         .withColumn("json_str", F.col("data").cast(StringType()))
         .withColumn("txn",      F.from_json(F.col("json_str"), TRANSACTION_SCHEMA))
@@ -166,29 +146,27 @@ def process_batch(micro_batch_df, batch_id):
         .filter(F.col("transaction_id").isNotNull())
     )
 
-    # Feature engineering
     featured = add_features(parsed)
 
-    # Write to S3 partitioned by year/month/day
-    (featured.write
+    
+    cols_to_drop = [c for c in COLS_TO_DROP if c in featured.columns]
+    featured_clean = featured.drop(*cols_to_drop)
+
+    (featured_clean.write
         .mode("append")
         .partitionBy("year", "month", "day")
         .parquet(S3_OUTPUT_PATH)
     )
 
 
-# ── Read from Kinesis ─────────────────────────────────────────────────────────
-
 kinesis_stream = (spark.readStream
     .format("kinesis")
-    .option("streamName",        KINESIS_STREAM_NAME)
-    .option("startingPosition",  "LATEST")
-    .option("region",            AWS_REGION)
-    .option("awsStsRoleArn",     "")           # uses task role automatically
+    .option("streamName", KINESIS_STREAM_NAME)
+    .option("startingPosition", "LATEST")
+    .option("region", AWS_REGION)
+    .option("awsStsRoleArn", "")
     .load()
 )
-
-# ── Start streaming query ─────────────────────────────────────────────────────
 
 query = (kinesis_stream
     .writeStream

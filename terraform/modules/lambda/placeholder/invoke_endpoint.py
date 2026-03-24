@@ -6,6 +6,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 import io
 import numpy as np
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -36,20 +37,34 @@ FEATURE_COLUMNS = [
 
 def read_parquet_from_s3(bucket: str, key: str) -> pd.DataFrame:
     response = s3_client.get_object(Bucket=bucket, Key=key)
-    buffer = io.BytesIO(response["Body"].read())
-    return pq.read_table(buffer).to_pandas()
+    return pq.read_table(io.BytesIO(response["Body"].read())).to_pandas()
 
 
-def invoke_sagemaker_batch(df_batch: pd.DataFrame) -> list:
+def invoke_sagemaker_batch(df_batch: pd.DataFrame) -> list[float]:
     payload = df_batch[FEATURE_COLUMNS].to_csv(index=False)
-    response = sagemaker_client.invoke_endpoint(
-        EndpointName=SAGEMAKER_ENDPOINT,
-        ContentType="text/csv",
-        Body=payload,
-    )
-    result = response["Body"].read().decode("utf-8")
-    scores = [float(x) for x in result.strip().split("\n") if x]
-    return scores
+    try:
+        response = sagemaker_client.invoke_endpoint(
+            EndpointName=SAGEMAKER_ENDPOINT,
+            ContentType="text/csv",
+            Accept="text/plain",        
+            Body=payload,
+        )
+        result = response["Body"].read().decode("utf-8")
+        scores = [float(x) for x in result.strip().split("\n") if x]
+
+       
+        if len(scores) != len(df_batch):
+            raise ValueError(
+                f"Score count mismatch: expected {len(df_batch)}, got {len(scores)}"
+            )
+        return scores
+
+    except sagemaker_client.exceptions.ModelError as e:
+        logger.error("SageMaker ModelError: %s", e)
+        raise
+    except Exception as e:
+        logger.error("SageMaker invoke failed: %s", e)
+        raise
 
 
 def publish_fraud_alert(row: dict, fraud_score: float) -> None:
@@ -67,50 +82,69 @@ def publish_fraud_alert(row: dict, fraud_score: float) -> None:
         Subject="Fraud Detected",
         Message=json.dumps(message, default=str),
     )
-    logger.info("Fraud alert published: transaction_id=%s score=%.4f",
-                row.get("transaction_id"), fraud_score)
+    logger.info("Alert sent: %s score=%.4f", row.get("transaction_id"), fraud_score)
 
 
 def write_predictions_to_s3(df: pd.DataFrame, source_key: str) -> None:
-    output_key = source_key.replace("features/", "predictions/")
+   
+    output_key = source_key.replace("features/", "predictions/", 1)
+    if output_key == source_key:
+        
+        output_key = f"predictions/{os.path.basename(source_key)}"
+
     buffer = io.BytesIO()
     df.to_parquet(buffer, index=False)
-    buffer.seek(0)
     s3_client.put_object(
         Bucket=PREDICTIONS_BUCKET,
         Key=output_key,
         Body=buffer.getvalue(),
     )
-    logger.info("Predictions written to s3://%s/%s", PREDICTIONS_BUCKET, output_key)
+    logger.info("Written to s3://%s/%s", PREDICTIONS_BUCKET, output_key)
 
 
 def handler(event, context):
     for record in event.get("Records", []):
         bucket = record["s3"]["bucket"]["name"]
         key    = record["s3"]["object"]["key"]
-
         logger.info("Processing s3://%s/%s", bucket, key)
 
         df = read_parquet_from_s3(bucket, key)
         logger.info("Loaded %d rows", len(df))
 
-        all_scores = []
+        
+        missing = set(FEATURE_COLUMNS) - set(df.columns)
+        if missing:
+            raise ValueError(f"Missing feature columns in parquet: {missing}")
+
+       
+        all_scores: list[float] = []
+        total_batches = int(np.ceil(len(df) / BATCH_SIZE))
 
         for i in range(0, len(df), BATCH_SIZE):
-            batch = df.iloc[i : i + BATCH_SIZE]
-            scores = invoke_sagemaker_batch(batch)
+            scores = invoke_sagemaker_batch(df.iloc[i : i + BATCH_SIZE])
             all_scores.extend(scores)
-            logger.info("Batch %d/%d scored", i // BATCH_SIZE + 1,
-                        int(np.ceil(len(df) / BATCH_SIZE)))
+            logger.info("Batch %d/%d done", i // BATCH_SIZE + 1, total_batches)
+
+        
+        if len(all_scores) != len(df):
+            raise ValueError(f"Total score mismatch: {len(all_scores)} != {len(df)}")
 
         df["fraud_score"] = all_scores
         df["fraud_pred"]  = (df["fraud_score"] >= FRAUD_THRESHOLD).astype(int)
 
         fraud_rows = df[df["fraud_pred"] == 1]
-        logger.info("Fraud detected: %d / %d rows", len(fraud_rows), len(df))
+        logger.info("Fraud: %d / %d", len(fraud_rows), len(df))
 
-        for _, row in fraud_rows.iterrows():
-            publish_fraud_alert(row.to_dict(), row["fraud_score"])
+       
+        if not fraud_rows.empty:
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                futures = {
+                    executor.submit(publish_fraud_alert, row.to_dict(), row["fraud_score"]): idx
+                    for idx, row in fraud_rows.iterrows()
+                }
+                for future in as_completed(futures):
+                    if future.exception():
+                        logger.error("SNS publish failed: %s", future.exception())
 
         write_predictions_to_s3(df, key)
 
