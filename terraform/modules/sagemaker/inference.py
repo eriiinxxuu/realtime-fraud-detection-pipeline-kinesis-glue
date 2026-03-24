@@ -61,6 +61,7 @@ def predict_fn(input_data, model):
     return model.predict_proba(input_data)[:, 1]
 
 
+
 def output_fn(prediction, accept):
     
     if accept in ("text/plain", "*/*", ""):
