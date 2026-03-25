@@ -4,7 +4,7 @@ on:
   push:
     branches: [master]
     paths:
-      - 'terraform/src/producer/**'
+      - 'src/producer/**'
 
 permissions:
   id-token: write
@@ -38,11 +38,11 @@ jobs:
           docker buildx create --use
           docker buildx build \
             --platform linux/arm64 \
-            -f terraform/src/producer/Dockerfile \
+            -f src/producer/Dockerfile \
             -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
             -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
             --push \
-            terraform/src/
+            src/
 
       - name: Update ECS service
         env:
