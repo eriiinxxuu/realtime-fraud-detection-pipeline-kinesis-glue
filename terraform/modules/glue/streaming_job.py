@@ -5,7 +5,8 @@ Glue Streaming Job (Glue 4.0)
 
 Flow:
   Kinesis Data Streams (transactions)
-      → parse JSON
+      → Glue native connector reads raw JSON
+      → manually parse JSON with from_json
       → feature engineering (26 features, same as training)
       → write parquet to S3 raw-transactions/features/
           partitioned by year / month / day
@@ -88,6 +89,7 @@ COLS_TO_DROP = [
     "risk_score",
     "home_country",
     "event_time",
+    "json_str", "txn",
 ]
 
 # ── Feature engineering ───────────────────────────────────────────────────────
@@ -105,7 +107,7 @@ def add_features(df):
                     F.col("user_profile_summary.home_country"))
     )
 
-    # Expand risk_signals → signal_* binary columns
+    # Expand risk_signals to signal_* binary columns
     for signal in RISK_SIGNALS:
         df = df.withColumn(
             f"signal_{signal}",
@@ -154,9 +156,13 @@ def process_batch(data_frame, batch_id):
     if data_frame.count() == 0:
         return
 
-    # Parse JSON from Kinesis data column
+    # Glue native connector returns a single column with raw JSON
+    # Column name contains special characters, use columns[0] to get it
+    raw_col = data_frame.columns[0]
+
+    # Parse JSON manually
     parsed = (data_frame
-        .withColumn("json_str", F.col("data").cast(StringType()))
+        .withColumn("json_str", F.col(f"`{raw_col}`").cast(StringType()))
         .withColumn("txn",      F.from_json(F.col("json_str"), TRANSACTION_SCHEMA))
         .select("txn.*")
         .filter(F.col("transaction_id").isNotNull())
