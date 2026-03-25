@@ -76,7 +76,7 @@ def add_features(df):
     # C. Create new features based on domain knowledge
     df = (df
         # 1. is_round_amount: Fraudsters often use round numbers like 100, 500
-        .withColumn("is_round_amount", F.when(F.col("amount") % 10 == 0, 1).otherwise(0))
+        .withColumn("is_round_amount", F.when(F.col("amount") % 1 == 0, 1).otherwise(0))
         
         # 2. is_home_country: Check if transaction location matches user's home country
         .withColumn("is_home_country", F.when(F.col("location").contains(F.col("home_country")), 1).otherwise(0))
