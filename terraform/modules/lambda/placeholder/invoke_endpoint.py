@@ -7,6 +7,8 @@ import pyarrow.parquet as pq
 import io
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import unquote_plus
+
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -19,7 +21,7 @@ SAGEMAKER_ENDPOINT = os.environ["SAGEMAKER_ENDPOINT_NAME"]
 SNS_TOPIC_ARN      = os.environ["SNS_TOPIC_ARN"]
 PREDICTIONS_BUCKET = os.environ["S3_PREDICTIONS_BUCKET"]
 FRAUD_THRESHOLD    = float(os.environ.get("FRAUD_THRESHOLD", "0.86"))
-BATCH_SIZE         = int(os.environ.get("BATCH_SIZE", "1000"))
+BATCH_SIZE         = int(os.environ.get("BATCH_SIZE", "500"))
 
 
 FEATURE_COLUMNS = [
@@ -93,10 +95,22 @@ def write_predictions_to_s3(df: pd.DataFrame, source_key: str) -> None:
 
 
 def handler(event, context):
-    for record in event.get("Records", []):
-        bucket = record["s3"]["bucket"]["name"]
-        key    = record["s3"]["object"]["key"]
-        logger.info("Processing s3://%s/%s", bucket, key)
+    try:
+        raw_key = event['Records'][0]['s3']['object']['key']
+        bucket = event['Records'][0]['s3']['bucket']['name']
+        
+        
+        key = urllib.parse.unquote_plus(raw_key)
+        
+        logger.info(f"Raw Key: {raw_key}")
+        logger.info(f"Decoded Key: {key}")
+
+       
+        if not key.endswith('.parquet'):
+            logger.info(f"Skipping non-parquet object: {key}")
+            return {"statusCode": 200, "body": "Skipped"}
+
+
 
         df = read_parquet_from_s3(bucket, key)
         logger.info("Loaded %d rows", len(df))
@@ -139,5 +153,8 @@ def handler(event, context):
                         logger.error("SNS publish failed: %s", future.exception())
 
         write_predictions_to_s3(df, key)
+    except Exception as e:
+        logger.error(f"Error processing S3 object: {str(e)}")
+        raise e
 
     return {"statusCode": 200, "body": "OK"}
