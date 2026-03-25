@@ -21,17 +21,17 @@ PREDICTIONS_BUCKET = os.environ["S3_PREDICTIONS_BUCKET"]
 FRAUD_THRESHOLD    = float(os.environ.get("FRAUD_THRESHOLD", "0.86"))
 BATCH_SIZE         = int(os.environ.get("BATCH_SIZE", "1000"))
 
+
 FEATURE_COLUMNS = [
-    "currency", "merchant", "location", "mcc", "device_id",
-    "amount",
+    "amount", "currency", "merchant", "location", "device_id", "mcc",
     "account_age_days", "is_frequent_traveler", "avg_transaction",
-    "hour", "day_of_week", "is_weekend", "is_night",
-    "amount_ratio", "is_home_country", "is_small_amount", "is_round_amount",
     "signal_amount_anomaly_3x", "signal_amount_anomaly_5x",
     "signal_geo_anomaly", "signal_high_risk_merchant",
     "signal_velocity_10min_high", "signal_velocity_1h_high",
     "signal_device_change", "signal_night_transaction",
     "signal_new_account", "signal_high_risk_mcc",
+    "hour", "day_of_week", "is_weekend", "is_night",
+    "amount_ratio", "is_home_country", "is_small_amount", "is_round_amount"
 ]
 
 
@@ -41,29 +41,19 @@ def read_parquet_from_s3(bucket: str, key: str) -> pd.DataFrame:
 
 
 def invoke_sagemaker_batch(df_batch: pd.DataFrame) -> list[float]:
-    payload = df_batch[FEATURE_COLUMNS].to_csv(index=False)
+    df_inference = df_batch[FEATURE_COLUMNS].fillna(0)
+    payload = df_inference.to_json(orient='records')
+
     try:
         response = sagemaker_client.invoke_endpoint(
             EndpointName=SAGEMAKER_ENDPOINT,
-            ContentType="text/csv",
-            Accept="text/plain",        
-            Body=payload,
-        )
-        result = response["Body"].read().decode("utf-8")
-        scores = [float(x) for x in result.strip().split("\n") if x]
-
-       
-        if len(scores) != len(df_batch):
-            raise ValueError(
-                f"Score count mismatch: expected {len(df_batch)}, got {len(scores)}"
-            )
-        return scores
-
-    except sagemaker_client.exceptions.ModelError as e:
-        logger.error("SageMaker ModelError: %s", e)
-        raise
+            ContentType="application/json",
+            Body=payload
+    )
+        res_body = json.loads(response["Body"].read().decode("utf-8"))
+        return res_body.get("predictions", res_body)
     except Exception as e:
-        logger.error("SageMaker invoke failed: %s", e)
+        logger.error("Invoke failed: %s", str(e))
         raise
 
 
@@ -115,6 +105,8 @@ def handler(event, context):
         missing = set(FEATURE_COLUMNS) - set(df.columns)
         if missing:
             raise ValueError(f"Missing feature columns in parquet: {missing}")
+        
+
 
        
         all_scores: list[float] = []
