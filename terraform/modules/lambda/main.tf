@@ -26,6 +26,9 @@ resource "aws_lambda_function" "invoke_endpoint" {
   timeout       = 300
   memory_size   = 512
 
+  layers = [
+    "arn:aws:lambda:ap-southeast-2:336392948345:layer:AWSSDKPandas-Python311:26"
+  ]
   filename         = "${path.module}/placeholder/invoke_endpoint.zip"
   source_code_hash = filebase64sha256("${path.module}/placeholder/invoke_endpoint.zip")
 
