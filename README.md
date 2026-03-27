@@ -6,7 +6,7 @@ A real-time fraud detection system built on AWS, ingesting synthetic transaction
 
 This project is an evolution of `v1`: [realtime-fraud-detection-pipeline](https://github.com/eriiinxxuu/realtime-fraud-detection-pipeline), which trained the LightGBM model on the same synthetic dataset. The model artifact from `v1` is deployed here as a SageMaker real-time endpoint, with the pipeline rebuilt on **Kinesis + Glue Streaming** replacing the original Kafka + Spark architecture.
 
-## Overview
+## Architecture
 ```bash
 ECS Producer (Fargate ARM64)
     │  synthetic transactions
