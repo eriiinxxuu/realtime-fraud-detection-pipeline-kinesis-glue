@@ -85,10 +85,10 @@ CI/CD via GitHub Actions:
 
 | Alarm | Metric | Threshold |
 |-------|--------|-----------|
-| Kinesis consumer lag | `GetRecords.IteratorAgeMilliseconds` | > 60,000 ms |
-| Glue throughput | `glue.ALL.jvm.heap.usage` | divergence |
-| Lambda errors | `Errors` | > 5 in 5 min |
-| SageMaker latency | `ModelLatency` | > 1,000 ms |
+| kinesis-consumer-lag | `GetRecords.IteratorAgeMilliseconds` | > 60,000 ms for 3 min |
+| glue-no-throughput | `glue.driver.aggregate.recordsRead` | = 0 for 15 min |
+| lambda-errors | `Errors` | > 5 in 5 min |
+| sagemaker-latency | `ModelLatency`p99 | > 2,000 ms for 5 min |
 
 All alarms publish to the `ops-alerts` SNS topic.
 
