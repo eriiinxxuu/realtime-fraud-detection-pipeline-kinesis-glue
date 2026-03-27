@@ -1,5 +1,14 @@
 # Real-Time Fraud Detection Pipeline with Kinesis and Glue streaming job
 
+![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)
+![AWS](https://img.shields.io/badge/AWS-Kinesis_&_ECS_Fargate-232F3E.svg)
+![PySpark](https://img.shields.io/badge/PySpark-Glue_Streaming-E25A1C.svg)
+![LightGBM](https://img.shields.io/badge/LightGBM-SageMaker_Endpoint-0194E2.svg)
+![Redshift](https://img.shields.io/badge/Redshift-Spectrum_Analytics-8C4FFF.svg)
+![CI/CD](https://img.shields.io/badge/CI/CD-GitHub_Actions-2088FF.svg)
+![Terraform](https://img.shields.io/badge/Terraform-Infrastructure_as_Code-623CE4.svg)
+![Security](https://img.shields.io/badge/Network-Private_VPC-green.svg)
+
 ## Introduction
 
 A real-time fraud detection system built on AWS, ingesting synthetic transaction events through a Kinesis streaming pipeline, scoring each transaction against a LightGBM model triggered by Lambda, and surfacing analytics via a Redshift Spectrum dashboard.
