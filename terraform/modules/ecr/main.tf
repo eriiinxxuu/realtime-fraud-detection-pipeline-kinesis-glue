@@ -9,6 +9,7 @@
 
 resource "aws_ecr_repository" "producer" {
   name                 = "${var.project}-producer"
+  force_delete = true
   image_tag_mutability = "MUTABLE"
 
   image_scanning_configuration {

@@ -7,6 +7,7 @@ import pyarrow.parquet as pq
 import io
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import urllib.parse
 from urllib.parse import unquote_plus
 
 

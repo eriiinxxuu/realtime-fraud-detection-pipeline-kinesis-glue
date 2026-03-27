@@ -186,7 +186,9 @@ resource "aws_iam_role_policy" "glue_s3" {
         var.raw_bucket_arn,
         "${var.raw_bucket_arn}/*",
         var.glue_assets_bucket_arn,
-        "${var.glue_assets_bucket_arn}/*"
+        "${var.glue_assets_bucket_arn}/*",
+        var.predictions_bucket_arn,       
+        "${var.predictions_bucket_arn}/*"
       ]
     }]
   })
@@ -403,6 +405,21 @@ resource "aws_iam_role_policy" "redshift_s3" {
     }]
   })
 }
+
+resource "aws_iam_role_policy" "redshift_glue" {
+  name = "${var.project}-redshift-glue"
+  role = aws_iam_role.redshift.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = ["glue:*"]
+      Resource = "*"
+    }]
+  })
+}
+
 
 # ── GitHub Actions Role (OIDC) ────────────────────────────────
 

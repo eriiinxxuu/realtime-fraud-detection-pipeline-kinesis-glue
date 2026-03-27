@@ -42,9 +42,20 @@ resource "aws_subnet" "private" {
   tags = { Name = "${var.project}-private-${count.index + 1}" }
 }
 
+resource "aws_internet_gateway" "main" {
+  vpc_id = aws_vpc.main.id
+  tags   = { Name = "${var.project}-igw" }
+}
+
 resource "aws_route_table" "private" {
   vpc_id = aws_vpc.main.id
   tags   = { Name = "${var.project}-private-rt" }
+}
+
+resource "aws_route" "internet" {
+  route_table_id         = aws_route_table.private.id
+  destination_cidr_block = "0.0.0.0/0"
+  gateway_id             = aws_internet_gateway.main.id
 }
 
 resource "aws_route_table_association" "private" {
@@ -109,14 +120,14 @@ resource "aws_security_group" "sagemaker" {
 
 resource "aws_security_group" "redshift" {
   name        = "${var.project}-redshift-sg"
-  description = "Redshift Serverless - VPC internal only"
+  description = "Redshift Serverless - allow QuickSight and VPC"
   vpc_id      = aws_vpc.main.id
 
   ingress {
     from_port   = 5439
     to_port     = 5439
     protocol    = "tcp"
-    cidr_blocks = ["10.1.0.0/16"]
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   egress {

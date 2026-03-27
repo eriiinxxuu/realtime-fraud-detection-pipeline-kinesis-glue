@@ -18,6 +18,9 @@
 # CloudWatch Alarms for Lambda errors in cloudwatch module
 # ============================================================
 
+
+
+
 resource "aws_lambda_function" "invoke_endpoint" {
   function_name = "${var.project}-invoke-endpoint"
   role          = var.lambda_role_arn
