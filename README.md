@@ -32,6 +32,9 @@ S3 (fraud-predictions/)
     │
     ▼
 Glue Crawler → Glue Data Catalog
+    │
+    ▼
+Redshift Spectrum → QuickSight Dashboard
 ```
 ## Techinical Skills
 - **Cloud & Infrastructure**: AWS (Kinesis, Glue, SageMaker, Lambda, ECS Fargate, ECR, S3, Redshift Serverless, SNS, CloudWatch)
@@ -78,4 +81,47 @@ CI/CD via GitHub Actions:
 | `deploy-glue.yml` | Push to `terraform/modules/glue/**` | Upload Glue script to S3, restart job |
 | `deploy-producer.yml` | Push to `terraform/src/producer/**` | Build ARM64 image, push to ECR, update ECS |
 
+## Monitoring
+
+| Alarm | Metric | Threshold |
+|-------|--------|-----------|
+| Kinesis consumer lag | `GetRecords.IteratorAgeMilliseconds` | > 60,000 ms |
+| Glue throughput | `glue.ALL.jvm.heap.usage` | divergence |
+| Lambda errors | `Errors` | > 5 in 5 min |
+| SageMaker latency | `ModelLatency` | > 1,000 ms |
+
+All alarms publish to the `ops-alerts` SNS topic.
+
+## Setup
+
+### Prerequisites
+
+- AWS CLI configured
+- Terraform >= 1.5
+- Docker with buildx
+
+### GitHub Secrets
+
+| Secret | Value |
+|--------|-------|
+| `AWS_ROLE_ARN` | OIDC role ARN for GitHub Actions |
+| `AWS_ACCOUNT_ID` | AWS account ID |
+| `TF_STATE_BUCKET` | S3 bucket for Terraform state |
+| `REDSHIFT_ADMIN_PASSWORD` | Redshift admin password |
+| `GLUE_ASSETS_BUCKET` | `fraud-detection-kinesis-glue-glue-assets` |
+| `PROJECT_NAME` | `fraud-detection-kinesis-glue` |
+
+### Deploy
+
+```bash
+# 1. Upload model artifact
+cd terraform/src/sagemaker
+COPYFILE_DISABLE=1 tar -czf model.tar.gz equirements.txt model.pkl inference.py
+aws s3 cp model.tar.gz s3://fraud-detection-kinesis-glue-model-artifacts/model/model.tar.gz
+
+# 2. Initialise and apply infrastructure
+cd terraform/envs/prod
+terraform init -backend-config="bucket=<tf-state-bucket>"
+terraform apply
+```
 
